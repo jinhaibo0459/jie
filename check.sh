@@ -30,9 +30,10 @@ t() {   # t <样本名> <期望输出>
     echo "  [PASS] ${n}（rc=0）"
     p=$((p+1))
   else
-    echo "  [FAIL] ${n}（rc=$r）"
+    echo "  [FAIL] ${n}（rc=${r}）"
     echo "         期望输出: [$w]"
     echo "         实际输出: [$o]"
+    file "samples/$n.macho" 2>/dev/null || true
     f=$((f+1))
   fi
 }
