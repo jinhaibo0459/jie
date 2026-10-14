@@ -67,6 +67,7 @@ run_exp x1
 run_exp x3
 run_exp x2
 run_exp x4
+run_exp x5
 
 echo
 echo "== M-3：jiqi64m 完整构建（BSD syscall 桩壳·运行级）=="
@@ -76,7 +77,9 @@ if [ -f m3/jiqi64m ]; then
   ( cd m3 && ./jiqi64m ) > m3_run.log 2>&1
   mrc=${?}
   echo "  jiqi64m rc=${mrc}"
-  tail -4 m3_run.log
+  echo "  --- m3_run.log ---"
+  cat m3_run.log
+  echo "  --- end ---"
   if [ "${mrc}" -eq 0 ]; then
     echo "  [PASS] rc=0（监控正常收割）"
     p=$((p+1))
