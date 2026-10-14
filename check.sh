@@ -14,6 +14,7 @@ cd "$(dirname "$0")"
 echo "== 杰汇编 M 线运行级验证（环境信息）=="
 sw_vers 2>/dev/null || true
 echo "架构: $(uname -m)"
+echo "bash: $BASH_VERSION"
 echo
 
 p=0
@@ -26,10 +27,10 @@ t() {   # t <样本名> <期望输出>
   o=$(./samples/"$n.macho" 2>&1)
   r=$?
   if [ "$r" -eq 0 ] && [ "$o" = "$w" ]; then
-    echo "  [PASS] $n（rc=0）"
+    echo "  [PASS] ${n}（rc=0）"
     p=$((p+1))
   else
-    echo "  [FAIL] $n（rc=$r）"
+    echo "  [FAIL] ${n}（rc=$r）"
     echo "         期望输出: [$w]"
     echo "         实际输出: [$o]"
     f=$((f+1))
@@ -45,6 +46,6 @@ t e2 "M2-E2-EDGE"
 t e3 "M2-E3-ENTRY"
 
 echo
-echo "== 汇总：PASS $p / FAIL $f（共 6）=="
+echo "== 汇总：PASS ${p} / FAIL ${f}（共 6）=="
 [ "$f" -eq 0 ] || exit 1
 echo "== 运行级验证：6/6 全绿 =="
