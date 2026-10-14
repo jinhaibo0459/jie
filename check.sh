@@ -49,11 +49,10 @@ t e2 "M2-E2-EDGE"
 t e3 "M2-E3-ENTRY"
 
 echo
-echo "== 实验样本（S3-C-140 联调诊断·信息段）=="
-run_exp() {   # run_exp <名>
+echo "== 实验样本（S3-C-140 诊断常驻·信息段·含历史对照）=="
+run_exp() {   # run_exp <名>（不存在则静默跳过）
   n="$1"
   if [ ! -f "samples/${n}" ]; then
-    echo "  （无 samples/${n}·跳过）"
     return
   fi
   chmod +x "samples/${n}"
