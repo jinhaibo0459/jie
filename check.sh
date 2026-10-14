@@ -66,6 +66,7 @@ run_exp() {   # run_exp <名>
 run_exp x1
 run_exp x3
 run_exp x2
+run_exp x4
 
 echo
 echo "== M-3：jiqi64m 完整构建（BSD syscall 桩壳·运行级）=="
