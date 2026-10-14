@@ -1,0 +1,20 @@
+# 杰汇编 · M 线（macOS）运行级验证——GitHub Actions 配置
+# -------------------------------------------------------------
+# 在 GitHub 云端 macOS（Intel x86_64）机器上执行 samples/ 下 6 个
+# Mach-O 样本并核对输出（脚本：check.sh）。
+# runner 说明：macos-15-intel = 标准免费档的最后 x86_64 镜像
+#（2027-08 前有效；macos-13 已于 2025-12 退役）。
+name: mac-verify（M线运行级）
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  run-samples:
+    runs-on: macos-15-intel
+    steps:
+      - uses: actions/checkout@v5
+      - name: 执行样本并核对输出
+        run: bash check.sh
