@@ -35,6 +35,17 @@ jobs:
           test "$(md5sum _tmp_ci/s2.elf | cut -d' ' -f1)" = "25d79ddb76de6238e589349727e20341"
           test "$(md5sum _tmp_ci/s3.elf | cut -d' ' -f1)" = "8132f1d1363b15e4b2cab7d4a8bb05ae"
           echo "[OK] 样本 md5 冻结值全符"
+      - name: 生成 AN-3 产物（β 段完成定义三项 · md5 冻结核验）
+        run: |
+          python3 an/androidstub.py _tmp_ci/sb_beta.bin --beta
+          python3 an/androidpkg64.py _tmp_ci/sb_beta.bin _tmp_ci/jiqiA64an_beta.elf --beta
+          python3 an/androidstub.py _tmp_ci/se4b.bin --e4 --beta
+          python3 an/androidpkg64.py _tmp_ci/se4b.bin _tmp_ci/jiqiA64an_e4beta.elf --e4 --beta
+          python3 an/beta_gen.py _tmp_ci
+          ls -la _tmp_ci
+          test "$(md5sum _tmp_ci/jiqiA64an_beta.elf | cut -d' ' -f1)" = "7180c8da79a476acf74303be6b6c4214"
+          test "$(md5sum _tmp_ci/jiqiA64an_e4beta.elf | cut -d' ' -f1)" = "9328dc400810db021fdcf6d2a651bf33"
+          echo "[OK] β 产物 md5 冻结值全符"
       - name: 启动 Redroid（arm64 Android 容器）并等待 boot
         run: |
           set -x
