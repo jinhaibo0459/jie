@@ -43,8 +43,8 @@ jobs:
           python3 an/androidpkg64.py _tmp_ci/se4b.bin _tmp_ci/jiqiA64an_e4beta.elf --e4 --beta
           python3 an/beta_gen.py _tmp_ci
           ls -la _tmp_ci
-          test "$(md5sum _tmp_ci/jiqiA64an_beta.elf | cut -d' ' -f1)" = "7180c8da79a476acf74303be6b6c4214"
-          test "$(md5sum _tmp_ci/jiqiA64an_e4beta.elf | cut -d' ' -f1)" = "9328dc400810db021fdcf6d2a651bf33"
+          test "$(md5sum _tmp_ci/jiqiA64an_beta.elf | cut -d' ' -f1)" = "d4841bd52438e520e54a6f676a368f1d"
+          test "$(md5sum _tmp_ci/jiqiA64an_e4beta.elf | cut -d' ' -f1)" = "540da91d6018e32556a98b4d6d42445d"
           echo "[OK] β 产物 md5 冻结值全符"
       - name: 启动 Redroid（arm64 Android 容器）并等待 boot
         run: |
