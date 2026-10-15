@@ -12,23 +12,28 @@
 #       盘        @0x42000000（内存盘 1.44M · svc_int13 写目标）
 #       DS        @0x41000000（源码 128 扇 · X9）
 #     寄存器 X18/X9/X10/X7 由壳在跳转前设入（承 mkimg_a64 build_boothead 配方）。
-#     停机适配：构建收尾「自旋环」（B_SELF · 裸机停机语义）由装载时单点重定向
-#     为「B trap → exit(0)」（进程停机语义；判据从 PC 停住变为 wait4 收割）。
-#     {park_off, b_word} 槽由装配器 androidpkg64.py 填写（承 linuxpkg64 装载时
-#     补丁惯例——装配器自身不改 jiqiA64 段一个字节，ELF 内 J64 段逐字节原样）。
+#     停机适配（v2·S3-C-166·承 规格/50 §2.2）：构建收尾「自旋环」（B_SELF · 裸机停机
+#     语义）由**装配器构建期**离线写入「B trap → exit(0)」（进程停机语义；判据从
+#     PC 停住变为 wait4 收割）——运行时零写码（W^X 合规）。
+#     {park_off, b_word} 槽由装配器 androidpkg64.py 填写（构建记录·运行时不读）；
+#     J64′ 判据 =「除 1 word 登记补丁外逐字节原样」（判据演进·承 规格/50 §2.2）。
 #
-#   ★布局契约（androidpkg64.py 双端同步）：
-#     桩区@0x000（保留零填 · AN-2 无服务桩——jiqiA64 自带 svc_int13）
-#     壳@0x200（ELF 入口 0x400278）· jiqiA64@0x1E00（VA 差恒 0x1E00）
-#     J64 基址占位：movz4(24, 0xE1E1F010)（装配器回填 = base+HDR+0x1E00）
+#   ★布局契约（androidpkg64.py 双端同步 · W^X 双段布局 v2）：
+#     seg1（R|X）：头区 0xB0（ehdr＋phdr×2）＋初垫＋壳＋J64′（文件 [0,0x5CA0)）
+#     seg2（R|W）：数据区外移出代码段——文件 0x6000／VA 0x406000（data_va·页对齐）
+#     桩区@0x000（保留零填 · AN 无服务桩——jiqiA64 自带 svc_int13）
+#     壳@blob 0x1C8（文件 0x278 · ELF 入口 0x400278）· jiqiA64@blob 0x1DC8（文件 0x1E78）
+#     J64 基址占位：movz4(24, 0xE1E1F010)（装配器回填 = base+HDR2+0x1DC8）
 #     park 槽 @数据区 +0x00：2 dword = 0xE2E2E2E2 ×2（装配器填 {park_off, b_word}）
-#     meta['trap_off']（blob 内偏移）导出给装配器算 b_word。
+#     meta['trap_off']（blob 内偏移）导出给装配器算 b_word（delta/b_word 全数不变——
+#     0x1C8−0x1DC8 ≡ 0x200−0x1E00）。
 #
 #   ★运行链（对偶 L-3）：
-#     init（本 ELF · PID1）→ 串口 raw → mmap×4 → 装盘（/jie_out.jie · 全量
+#     init（本 ELF · PID1）→ 串口 raw → mmap×5 → 装盘（/jie_out.jie · 全量
 #     1474560 B）→ 装 DS（/jie_build.jie：lseek 9216 读 128 扇 → X9+0；
 #     lseek 114688 读 7 扇 → ES2+0xF100）→ [ES2+0xF000]=14（构建模式）→ clone →
-#     子：patch park→trap · 设寄存器组 · BR jiqiA64（构建 → trap → exit(0)）；
+#     子：设寄存器组 · BR jiqiA64（构建 → trap → exit(0)）——park→trap 重定向已由
+#         装配器构建期写入 J64′（运行时零写码）；
 #     父：wait4 轮询（500ms×240=120s 上限）→ 子 exit(0)=构建完成 → halt 行 →
 #     回传（协议头 S145PROD:1474560 + 22×64KB + 32768 · 直接读共享盘区）
 #     → reboot(POWER_OFF) → exit 兜底。
@@ -54,11 +59,13 @@ import elfpkg64a              # noqa: E402
 SVC0 = 0xD4000001             # SVC #0（承 android_smoke 内联惯例）
 
 BASE_VA    = 0x400000         # ELF 基址（elfpkg64a 契约）
-HDR        = 0x78             # ehdr+phdr
-SHELL_OFF  = 0x200            # 壳起点（blob 内·ELF 入口）
-J64_OFF    = 0x1E00           # jiqiA64 起点（blob 内·VA 差恒 0x1E00）
+HDR2       = 0xB0             # ehdr＋phdr×2（双段布局 v2·承 规格/50 §2.1）
+SHELL_OFF  = 0x1C8            # 壳起点（blob 内·文件 0x278 = HDR2+SHELL_OFF——不变）
+J64_OFF    = 0x1DC8           # jiqiA64 起点（blob 内·文件 0x1E78——不变）
 PLACE_HOLD = 0xE1E1F010       # J64_VA 占位 magic（装配器回填）
-SLOT_MAGIC = 0xE2E2E2E2       # park 槽占位（装配器填写）
+SLOT_MAGIC = 0xE2E2E2E2       # park 槽占位（装配器填写·构建记录）
+assert HDR2 + SHELL_OFF == 0x278, '壳文件偏移契约破坏'
+assert HDR2 + J64_OFF == 0x1E78, 'J64 文件偏移契约破坏'
 
 # ---- 数据区偏移表（数据基 X28 相对 · ldr/str 用项保 4 对齐） ----
 D_SLOT  = 0x00    # 8B  {park_off, b_word}（E2 占位 → 装配器填）
@@ -162,12 +169,25 @@ class Gen:
                 self.w[idx] = cbnz_w(p[3], off)
 
 
-def build(variant='build', beta=False):
-    """生成 stub（0x000-…·前 0x200 零填）与 meta。返回 (bytes, meta)。
+def calc_data_va(j64_len):
+    """数据段 VA（双段布局 v2）= base + align_up(HDR2 + J64_OFF + len(j64))。
+    装配器与独立生成（main）双端同式——保「确定性校验」一致。"""
+    seg1_end = HDR2 + J64_OFF + j64_len
+    return BASE_VA + (seg1_end + 0xFFF) // 0x1000 * 0x1000
+
+
+def build(variant='build', beta=False, data_va=None):
+    """生成 stub（桩区零填＋壳码·RX 段内容）＋ data（RW 段·0xEF B）＋ meta。
+       返回 (stub, data, meta)；X28 数据基 = data_va（v2：数据区外移 RW 段）。
+       data_va 缺省自动读 ../arm/jiqiA64.jie 长度计算（装配器显式传入以保
+       「确定性校验」双端一致·承 规格/50 §2.3）。
        variant='build' 主壳（构建模式·盘回传）／'e4' 变体（测试模式·产物回传）。
        beta=True（S3-C-147·β 段）：路径相对化（配合 adb shell「cd /data/local/tmp」）
        ＋产物写回文件（fout 路径·写后回读 8B 校验·halt 行蕴含写成功）。"""
     assert variant in ('build', 'e4'), variant
+    if data_va is None:
+        data_va = calc_data_va(os.path.getsize(
+            os.path.join(HERE, '..', 'arm', 'jiqiA64.jie')))
     g = Gen()
     SVC = SVC0
 
@@ -190,7 +210,7 @@ def build(variant='build', beta=False):
         g.emit(cmp_w_reg(reg, 31))
         g.bc_to('LT', 'shell_fail')
 
-    # ===== [0] 数据基 X28（占位·finalize 回填 base+HDR+data_off）=====
+    # ===== [0] 数据基 X28（占位·finalize 回填 data_va——v2 数据区外移 RW 段）=====
     base_seq_idx = len(g.w)
     for w in movz4_words(28, 0):
         g.w.append(w)
@@ -426,14 +446,12 @@ def build(variant='build', beta=False):
     write_fd1(D_FMSG, 14)
     g.b_to('wreboot')
 
-    # ===== [J] 子：patch park → trap · 设寄存器组 · BR jiqiA64 =====
+    # ===== [J] 子：设寄存器组 · BR jiqiA64（park→trap 重定向已构建期写入 J64′）=====
     g.lbl('child_init')
-    g.emit(ldr_w(25, 28, D_SLOT), ldr_w(26, 28, D_SLOT + 4))
-    # J64 基址占位（装配器回填 = base+HDR+0x1E00）
+    # J64 基址占位（装配器回填 = base+HDR2+0x1DC8）
     place_idx = len(g.w)
     for w in movz4_words(24, PLACE_HOLD):
         g.w.append(w)
-    g.emit(add_x_reg(25, 24, 25), str_w(26, 25, 0))    # [J64+park_off] ← b_word
     # 寄存器组（承 build_boothead：设值 + 清零·保留 X24/X28）
     g.emit(mov_x(9, 19), mov_x(18, 24), movz_x(10, 0x4020, hw=1))
     g.emit(const_x(7, 0x4020FC00))
@@ -451,10 +469,8 @@ def build(variant='build', beta=False):
     # ===== 回填与组装 =====
     g.finalize()
     code = b''.join(w.to_bytes(4, 'little') for w in g.w)
-    data_off = SHELL_OFF + len(code)
-    # X28 数据基回填（VA = base+HDR+data_off）
-    val = BASE_VA + HDR + data_off
-    segs = [(val >> (16 * i)) & 0xFFFF for i in range(4)]
+    # X28 数据基回填（v2：data_va 直填——数据区已外移出代码段 ⇒ RW 段）
+    segs = [(data_va >> (16 * i)) & 0xFFFF for i in range(4)]
     g.w[base_seq_idx + 0] = movz_x(28, segs[0])
     g.w[base_seq_idx + 1] = movk_x(28, segs[1], hw=1)
     g.w[base_seq_idx + 2] = movk_x(28, segs[2], hw=2)
@@ -477,13 +493,14 @@ def build(variant='build', beta=False):
     data[D_RMSG:D_RMSG + 22] = D_RMSG_B
     data[D_FMSG:D_FMSG + 15] = D_FMSG_B
 
-    stub = bytes(SHELL_OFF) + code + bytes(data)     # 前 0x200 零填（桩区保留）
-    assert len(stub) <= J64_OFF, 'stub 超 0x1E00：%d' % len(stub)
+    stub = bytes(SHELL_OFF) + code                     # 桩区零填（RX 段内容）
+    assert len(stub) + D_SIZE <= J64_OFF, \
+        'pad+code+data 超 blob 预算：%d' % (len(stub) + D_SIZE)
 
-    meta = dict(trap_off=SHELL_OFF + trap_idx * 4, data_off=data_off,
-                stub_len=len(stub), place_off=SHELL_OFF + place_idx * 4,
-                code_len=len(code), variant=variant, beta=beta)
-    return stub, meta
+    meta = dict(trap_off=SHELL_OFF + trap_idx * 4, data_va=data_va,
+                data_off=data_va - BASE_VA, place_off=SHELL_OFF + place_idx * 4,
+                code_len=len(code), data_len=len(data), variant=variant, beta=beta)
+    return stub, bytes(data), meta
 
 
 def main():
@@ -493,14 +510,15 @@ def main():
     default = 'androidstub%s%s.bin' % ('_e4' if variant == 'e4' else '',
                                        '_beta' if beta else '')
     out = args[0] if args else os.path.join(HERE, default)
-    stub, meta = build(variant=variant, beta=beta)
+    stub, data, meta = build(variant=variant, beta=beta)
     open(out, 'wb').write(stub)
     import hashlib
-    print('%s（variant=%s）= %d B（0x%X）·md5 %s' %
-          (os.path.basename(out), variant, len(stub), len(stub),
-           hashlib.md5(stub).hexdigest()))
-    print('  trap_off=0x%X · data_off=0x%X · place_off=0x%X · code_len=0x%X' %
-          (meta['trap_off'], meta['data_off'], meta['place_off'], meta['code_len']))
+    print('%s（variant=%s%s）= %d B（0x%X）·md5 %s' %
+          (os.path.basename(out), variant, '·beta' if beta else '',
+           len(stub), len(stub), hashlib.md5(stub).hexdigest()))
+    print('  trap_off=0x%X · data_va=0x%X（文件 0x%X）· place_off=0x%X · code_len=0x%X'
+          % (meta['trap_off'], meta['data_va'], meta['data_off'],
+             meta['place_off'], meta['code_len']))
 
 
 if __name__ == '__main__':
