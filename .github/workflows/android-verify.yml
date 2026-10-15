@@ -1,0 +1,40 @@
+# 杰汇编 · AN 线（Android）运行级验证——GitHub Actions 配置
+# -------------------------------------------------------------
+# 在 GitHub 云端 macOS（arm64 / Apple Silicon）机器上启动 Android arm64
+# 模拟器，推入并运行 AN-1 冒烟样本（aarch64 静态 ELF · 直接 syscall）
+# 并核对输出（脚本：跨平台/android/ci/check.sh）。
+# 判据：样本 md5 冻结值（防假绿）＋设备 ABI ＋三样本输出 ＋ rc=0。
+# runner 说明：macos-15 = arm64 标准镜像（Apple Silicon·HVF 硬件加速）——
+# 与 macos-15-intel（M 线 x86_64）相对；arm64 镜像在 arm64 宿主上获硬件加速。
+name: android-verify（AN线运行级）
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/android-verify.yml'
+      - 'an/**'
+  workflow_dispatch:
+
+jobs:
+  run-samples:
+    runs-on: macos-15
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v5
+      - name: 生成冒烟样本并核验冻结 md5（防假绿）
+        run: |
+          python3 an/android_smoke.py _tmp_ci
+          ls -la _tmp_ci
+          test "$(md5 -q _tmp_ci/s1.elf)" = "c264f57b8c2415926555853b6782db31"
+          test "$(md5 -q _tmp_ci/s2.elf)" = "25d79ddb76de6238e589349727e20341"
+          test "$(md5 -q _tmp_ci/s3.elf)" = "8132f1d1363b15e4b2cab7d4a8bb05ae"
+          echo "[OK] 样本 md5 冻结值全符"
+      - name: 启动 Android arm64 模拟器并运行样本
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          arch: arm64-v8a
+          target: default
+          emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect
+          script: bash an/check.sh
