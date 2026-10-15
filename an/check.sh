@@ -35,6 +35,7 @@ fi
 
 echo
 echo "== AN 线冒烟：aarch64 静态 ELF · 直接 syscall（三样本）=="
+adb shell "mkdir -p /data/local/tmp" >/dev/null 2>&1 || true
 for name in s1 s2 s3; do
   case "${name}" in
     s1) want="S144-A64-OK" ;;

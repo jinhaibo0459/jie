@@ -1,11 +1,16 @@
 # 杰汇编 · AN 线（Android）运行级验证——GitHub Actions 配置
 # -------------------------------------------------------------
-# 在 GitHub 云端 macOS（arm64 / Apple Silicon）机器上启动 Android arm64
-# 模拟器，推入并运行 AN-1 冒烟样本（aarch64 静态 ELF · 直接 syscall）
-# 并核对输出（脚本：跨平台/android/ci/check.sh）。
+# 在 GitHub 云端 arm64 Linux 机器上启动 Redroid（容器化 Android·arm64 原生·
+# 无需 KVM/HVF——共享宿主内核），推入并运行 AN-1 冒烟样本（aarch64 静态 ELF·
+# 直接 syscall）并核对输出（脚本：an/check.sh）。
 # 判据：样本 md5 冻结值（防假绿）＋设备 ABI ＋三样本输出 ＋ rc=0。
-# runner 说明：macos-15 = arm64 标准镜像（Apple Silicon·HVF 硬件加速）——
-# 与 macos-15-intel（M 线 x86_64）相对；arm64 镜像在 arm64 宿主上获硬件加速。
+#
+# ★runner 选型（S3-C-144 联调 #1 教训·2026-10-15）：
+#   ①macOS arm64 runner（macos-15）＝ M1/M2 无嵌套虚拟化 ⇒ 模拟器 HVF 失败
+#     （HV_UNSUPPORTED·actions/runner-images#9472 定论）——已实测排除。
+#   ②ubuntu-24.04-arm 不暴露 /dev/kvm ⇒ 模拟器无硬件加速。
+#   ③⇒ 采用 ubuntu-24.04-arm ＋ Redroid 容器（arm64 Android 原生运行·
+#     无虚拟化依赖）——「Android 用户态 + arm64 原生」实证（β 段先导）。
 name: android-verify（AN线运行级）
 
 on:
@@ -18,23 +23,42 @@ on:
 
 jobs:
   run-samples:
-    runs-on: macos-15
-    timeout-minutes: 40
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
       - name: 生成冒烟样本并核验冻结 md5（防假绿）
         run: |
           python3 an/android_smoke.py _tmp_ci
           ls -la _tmp_ci
-          test "$(md5 -q _tmp_ci/s1.elf)" = "c264f57b8c2415926555853b6782db31"
-          test "$(md5 -q _tmp_ci/s2.elf)" = "25d79ddb76de6238e589349727e20341"
-          test "$(md5 -q _tmp_ci/s3.elf)" = "8132f1d1363b15e4b2cab7d4a8bb05ae"
+          test "$(md5sum _tmp_ci/s1.elf | cut -d' ' -f1)" = "c264f57b8c2415926555853b6782db31"
+          test "$(md5sum _tmp_ci/s2.elf | cut -d' ' -f1)" = "25d79ddb76de6238e589349727e20341"
+          test "$(md5sum _tmp_ci/s3.elf | cut -d' ' -f1)" = "8132f1d1363b15e4b2cab7d4a8bb05ae"
           echo "[OK] 样本 md5 冻结值全符"
-      - name: 启动 Android arm64 模拟器并运行样本
-        uses: reactivecircus/android-emulator-runner@v2
-        with:
-          api-level: 34
-          arch: arm64-v8a
-          target: default
-          emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect
-          script: bash an/check.sh
+      - name: 启动 Redroid（arm64 Android 容器）并等待 boot
+        run: |
+          set -x
+          uname -m
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq adb
+          sudo apt-get install -y -qq "linux-modules-extra-$(uname -r)" || echo "(警告) modules-extra 未装成——继续尝试 modprobe"
+          sudo modprobe binder_linux devices="binder,hwbinder,vndbinder"
+          sudo modprobe ashmem_linux || echo "(提示) ashmem_linux 不可用（新内核已由 memfd 取代·容忍）"
+          lsmod | grep -E "binder|ashmem" || true
+          docker run -d --name redroid --privileged -p 5555:5555 \
+            redroid/redroid:14.0.0_64only-latest \
+            androidboot.redroid_gpu_mode=guest
+          sleep 10
+          adb connect localhost:5555 || true
+          timeout 120 adb wait-for-device || true
+          for i in $(seq 1 60); do
+            b=$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')
+            echo "  [boot ${i}] sys.boot_completed=${b}"
+            [ "${b}" = "1" ] && break
+            sleep 5
+          done
+          adb devices
+          echo "ABI=$(adb shell getprop ro.product.cpu.abi | tr -d '\r')"
+          echo "SDK=$(adb shell getprop ro.build.version.sdk | tr -d '\r')"
+      - name: 运行 AN 线判据
+        run: bash an/check.sh
