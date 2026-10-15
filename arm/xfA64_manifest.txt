@@ -1,0 +1,27 @@
+jiqi16=5545 → jiqiA64=15912（Δ=+10367）md5=4124175f75455a96a1d46925e6febd3f
+指令 2156 条 → A64 3978 字（2156 条旧指令全部翻译）
+分类: {'jcc16': 384, 'cmpal': 372, 'mov16i': 222, 'inc16': 204, 'call16': 189, 'jmp16': 170, 'mov8mem': 75, 'mov8i': 71, 'mov16rr': 64, 'pop': 46, 'es_rd16mem': 46, 'cs_mov8mem': 45, 'push': 43, 'es_mov16mem': 40, 'arith16rr': 32, 'shl16': 24, 'es_rd8mem': 21, 'ret': 16, 'es_mov8mem': 15, 'arith16imm': 15, 'subal': 14, 'mov8rr': 11, 'cs_mov16mem': 8, 'int': 8, 'es_segload': 7, 'dec8': 5, 'jmp8': 4, 'cmp8rr': 3, 'exit': 1, 'mov16mem': 1}
+常量约定: ES0_BASE=0x40200000 · SIG_OFF=0xF0F6 · 装载基址 X18(qemu virt)=0x40080000
+服务位点（旧偏移→新偏移）:
+  @1299 INT 10 → 新偏移 341C（UART 输出 AL（真接续·内联））
+  @12CE INT 13 → 新偏移 34B4（BL svc_int13（内存盘接续·桩字偏移 3955））
+  @131D INT 13 → 新偏移 35B0（BL svc_int13（内存盘接续·桩字偏移 3955））
+  @13C5 INT 13 → 新偏移 3774（BL svc_int13（内存盘接续·桩字偏移 3955））
+  @13CD INT 13 → 新偏移 378C（BL svc_int13（内存盘接续·桩字偏移 3955））
+  @13E4 INT 13 → 新偏移 37DC（BL svc_int13（内存盘接续·桩字偏移 3955））
+  @159D INT 10 → 新偏移 3D9C（UART 输出 AL（真接续·内联））
+  @15A5 INT 10 → 新偏移 3DBC（UART 输出 AL（真接续·内联））
+  @1538 ljmp 出口 → 新偏移 3C5C（完成签名 [X9+0xF0F6]←0x0077 + B_SELF）
+  @0021 es_segload 段值 2000 → 新偏移 002C（X10=ES2 区常量 0x400A0000）
+  @12C8 es_segload 段值 0000 → 新偏移 34A0（X10=ES0 区常量 0x40200000）
+  @12D8 es_segload 段值 2000 → 新偏移 34C8（X10=ES2 区常量 0x400A0000）
+  @12FD es_segload 段值 2000 → 新偏移 3554（X10=ES2 区常量 0x400A0000）
+  @1347 es_segload 段值 1000 → 新偏移 3648（X10=X9）
+  @13B7 es_segload 段值 0000 → 新偏移 3754（X10=ES0 区常量 0x40200000）
+  @1536 es_segload 段值 0000 → 新偏移 3C58（X10=ES0 区常量 0x40200000）
+BUILD_PARK: old=13C7 new=14200（构建完成停住点·紧跟 INT 13h 的自旋环·两平台同址）
+分支 747 条：新空间最大距离 3322 条指令（B ±2^25 / B.cond ±2^18 域内）
+长度账：16 位返址空间 65536 → 余 49716；本体 15820 B ＋ 服务桩 92 B（B）＝ 代码区 15912 B
+Jcc 白名单守卫: PASS（cmp/sub16/subal/dec8）
+服务桩: svc_int13 @字 3955（字节 15820）·内存盘基址 0x42000000·桩长 92 B（只实现 AH=03 写盘）
+MACHINE: exit_off=15452 svc_off=15820 total=15820 total_all=15912 md5=4124175f75455a96a1d46925e6febd3f
