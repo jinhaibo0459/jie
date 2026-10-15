@@ -196,11 +196,22 @@ def build(variant='build', beta=False):
         g.w.append(w)
 
     # ===== [A] 串口 raw：ioctl(1,TCGETS) → c_oflag&=~OPOST → ioctl(1,TCSETS) =====
+    #   ★β 容错（S3-C-163 首跑修复·承 HX 线 S3-C-159 先例）：设备 adb shell 的
+    #   stdout 为 pipe（非 TTY）——ioctl 返回 ENOTTY 属预期语义差异 ⇒ 跳过；
+    #   非 beta（QEMU/本地）保持严判（不触 build/e4 不变式）。
     # ioctl(fd=1, req=0x5401, ptr=tbuf)
     g.emit(movz_w(0, 1), const_x(1, 0x5401), add_x_imm(2, 28, D_TBUF),
            movz_w(8, 29))
     svc()
-    fail_if_neg(0)
+    if not beta:
+        fail_if_neg(0)
+    if beta:
+        # 环境标记 x16：ioctl 成功（x0≥0）=TTY（串口）→1；失败（ENOTTY·pipe）=设备 →0
+        # （供 wreboot 环境自适应：TTY→reboot／非 TTY→纯 exit）
+        g.emit(movz_w(16, 0), cmp_w_reg(0, 31))
+        g.bc_to('LT', 'a_notty')
+        g.emit(movz_w(16, 1))
+        g.lbl('a_notty')
     # tbuf+4 &= 0xFFFFFFFE
     g.emit(ldr_w(9, 28, D_TBUF + 4), and_w_imm(9, 9, 0xFFFFFFFE),
            str_w(9, 28, D_TBUF + 4))
@@ -208,7 +219,8 @@ def build(variant='build', beta=False):
     g.emit(movz_w(0, 1), const_x(1, 0x5402), add_x_imm(2, 28, D_TBUF),
            movz_w(8, 29))
     svc()
-    fail_if_neg(0)
+    if not beta:
+        fail_if_neg(0)
 
     # ===== [B] mmap ×5（MAP_FIXED|MAP_ANONYMOUS|MAP_SHARED = 0x31 · PROT RW = 3）=====
     def mmap_fixed(addr, length):
@@ -395,10 +407,17 @@ def build(variant='build', beta=False):
     # 落空 → wreboot
 
     g.lbl('wreboot')
+    if beta:
+        # ★β 环境自适应（S3-C-163 设备语义·承 HX S3-C-159）：非 TTY（设备·adb pipe
+        #   stdout）→ 纯 exit——不关机·adb 会话保持（供 pull 拉取产物）；TTY（QEMU
+        #   串口）→ reboot 快速退出（原语义）。
+        g.emit(cmp_w_reg(16, 31))
+        g.bc_to('EQ', 'wexit')
     g.emit(const_x(0, REBOOT_MAGIC1), const_x(1, REBOOT_MAGIC2),
            const_x(2, REBOOT_POWEROFF), movz_x(3, 0), movz_w(8, 142))
     svc()
-    # 兜底 exit(0)（Android 环境 reboot 被拒时）
+    g.lbl('wexit')
+    # 兜底 exit(0)（Android 环境 reboot 被拒时·环境自适应跳转亦达此）
     g.emit(movz_w(0, 0), movz_w(8, 93))
     svc()
 
