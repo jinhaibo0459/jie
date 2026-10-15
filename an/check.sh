@@ -4,14 +4,14 @@
 # 杰汇编 · AN 线 CI 判据（S3-C-144 · β 段 · 在 Android 模拟器内运行）
 # -------------------------------------------------------------
 # 前置：①样本已生成于 _tmp_ci/（md5 冻结值由 workflow 步骤核验）
-#       ②adb 已连接 Android 设备/模拟器（android-emulator-runner action 就绪）
+#       ②adb 已连接 Android 设备/模拟器/Redroid 容器（android-verify.yml 就绪）
 # 判据：①环境真实性（设备 ABI=arm64-v8a）
 #       ②三样本运行输出文本（S144-A64-OK / OK2 / A64-OK3）
 #       ③三样本 rc=0（★Android 语义：shell 无 CAP_SYS_BOOT ⇒ reboot 被拒 ⇒
 #         exit(0) 兜底——「同一 ELF 跨环境行为」实证）
 # 用法：bash an/check.sh（仓库根 cwd 或 an/ 内均可）
 # 退出码：全绿 0；任一 FAIL ⇒ 1（并打印现场供诊断）
-# 说明：适配 GitHub Actions（macos-15 arm64·HVF 加速）与真实 Mac + Android 设备。
+# 说明：适配 GitHub Actions（ubuntu-24.04-arm + Redroid 容器）与真实设备 + adb。
 #       纪律：bash 3.2（macOS 自带）——`$变量` 后接非 ASCII 须用 `${变量}`。
 # =============================================================
 set -u
@@ -23,6 +23,17 @@ say_fail() { echo "  [FAIL] $1"; f=$((f+1)); }
 
 echo "== 设备 =="
 adb devices
+# 设备选择（联调 #2 教训：5555＝emulator 标准端口 ⇒ adb 自动识别 emulator-XXXX
+# 与 connect 条目双现 ⇒ 裸 adb 命令歧义失败——锁定单设备，通用模拟器/redroid/真机）
+if [ -z "${ANDROID_SERIAL:-}" ]; then
+  dsr=$(adb devices | tr -d '\r' | awk 'NR>1 && $2=="device" {print $1; exit}')
+  if [ -n "${dsr}" ]; then export ANDROID_SERIAL="${dsr}"; fi
+fi
+if [ -n "${ANDROID_SERIAL:-}" ]; then
+  echo "  使用设备：${ANDROID_SERIAL}"
+else
+  echo "  使用设备：（未指定）"
+fi
 abi=$(adb shell getprop ro.product.cpu.abi 2>/dev/null | tr -d '\r')
 sdk=$(adb shell getprop ro.build.version.sdk 2>/dev/null | tr -d '\r')
 rel=$(adb shell getprop ro.build.version.release 2>/dev/null | tr -d '\r')

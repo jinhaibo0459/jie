@@ -50,15 +50,26 @@ jobs:
             androidboot.redroid_gpu_mode=guest
           sleep 10
           adb connect localhost:5555 || true
+          # ★设备锁定（联调 #2 教训：5555＝emulator 标准端口 ⇒ adb 自动识别 emulator-5554
+          #   ＋手动 connect 条目 ⇒ 双条目歧义「more than one device」——全部命令锁定单设备）
+          export ANDROID_SERIAL=localhost:5555
           timeout 120 adb wait-for-device || true
+          ok=0
           for i in $(seq 1 60); do
             b=$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')
             echo "  [boot ${i}] sys.boot_completed=${b}"
-            [ "${b}" = "1" ] && break
+            if [ "${b}" = "1" ]; then ok=1; break; fi
             sleep 5
           done
           adb devices
           echo "ABI=$(adb shell getprop ro.product.cpu.abi | tr -d '\r')"
           echo "SDK=$(adb shell getprop ro.build.version.sdk | tr -d '\r')"
+          if [ "${ok}" != "1" ]; then
+            echo "== redroid 未完成 boot——容器日志尾部（诊断）=="
+            docker logs --tail 80 redroid || true
+          fi
       - name: 运行 AN 线判据
-        run: bash an/check.sh
+        # ★设备锁定（跨 step 环境变量不保留·此处显式锁定；check.sh 内另有自选兜底）
+        run: |
+          export ANDROID_SERIAL=localhost:5555
+          bash an/check.sh
