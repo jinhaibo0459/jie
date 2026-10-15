@@ -15,6 +15,7 @@ import struct
 
 BASE = 0x400000          # 默认装载基址（非 PIE）
 HDR = 64 + 56            # ehdr + 1 phdr = 0x78
+HDR2 = 64 + 56 * 2       # ehdr + 2 phdr = 0xB0（双段布局 v2·W^X 合规·承 规格/50 §2.1）
 ENTRY_OFF = HDR          # 默认入口＝文件内代码起点
 
 _MOVZ_X = 0xD2800000
@@ -84,6 +85,77 @@ def build(code, data=b'', *, base=BASE, entry=None, fixups=()):
     return bytes(eh) + ph + bytes(blob)
 
 
+def build_ds(blob, data, *, base=BASE, entry=None, fixups=(), align=0x1000):
+    """构造双段 static ELF64（AArch64·W^X 合规布局 v2·承 规格/50 §2.1）。
+
+    seg1（R|X·offset 0·vaddr base）：ehdr＋phdr×2（HDR2=0xB0）＋blob，
+        p_filesz = p_memsz = HDR2 + len(blob)
+    seg2（R|W·offset align_up(HDR2+len(blob))·vaddr base+同）：data，
+        p_filesz = p_memsz = len(data)
+    页规则：seg2 起点页对齐 ⇒ seg1 页域 [0, seg2_off) 与 seg2 页域不重叠
+    （无共享页——任何页不得同时含可写数据与可执行码）。
+    fixups 语义同 build（blob 内偏移 → 回填值 = base + HDR2 + target）。
+    返回 (file_bytes, meta{'data_off','data_va'})。"""
+    blob = bytes(blob)
+    data = bytes(data)
+    assert len(data) > 0, '数据段为空（双段构造需非空数据）'
+    buf = bytearray(blob)
+
+    # 绝对地址回填（fixups·movz/movk 四段·blob 内空间）
+    for off, target in fixups:
+        _patch_movz4(buf, off, base + HDR2 + target)
+
+    if entry is None:
+        entry = HDR2
+    seg1_filesz = HDR2 + len(buf)
+    seg2_off = (seg1_filesz + align - 1) // align * align   # 页对齐（= seg1 页域上界）
+    seg2_va = base + seg2_off
+    assert (seg2_va - seg2_off) % align == 0, 'seg2 (vaddr-offset) 非页对齐'
+    assert seg1_filesz <= seg2_off, 'seg1 与 seg2 共享页'
+    total = seg2_off + len(data)
+
+    # —— ELF 头（64 B）——
+    eh = bytearray()
+    eh += b'\x7fELF' + bytes([2, 1, 1, 0]) + bytes(8)   # ELF64 · LSB · v1 · SysV
+    eh += struct.pack('<H', 2)          # e_type  = ET_EXEC
+    eh += struct.pack('<H', 0xB7)       # e_machine = AArch64
+    eh += struct.pack('<I', 1)          # e_version
+    eh += struct.pack('<Q', base + entry)
+    eh += struct.pack('<Q', 64)         # e_phoff
+    eh += struct.pack('<Q', 0)          # e_shoff（无节表）
+    eh += struct.pack('<I', 0)          # e_flags
+    eh += struct.pack('<H', 64)         # e_ehsize
+    eh += struct.pack('<H', 56)         # e_phentsize
+    eh += struct.pack('<H', 2)          # e_phnum（双段）
+    eh += struct.pack('<H', 0) + struct.pack('<H', 0) + struct.pack('<H', 0)
+    assert len(eh) == 64
+
+    # —— 程序头 ×2 ——
+    ph1 = struct.pack('<IIQQQQQQ',
+                      1,          # p_type  = PT_LOAD
+                      5,          # p_flags = R|X（代码段）
+                      0,          # p_offset = 0
+                      base,       # p_vaddr
+                      base,       # p_paddr
+                      seg1_filesz, seg1_filesz,
+                      align)
+    ph2 = struct.pack('<IIQQQQQQ',
+                      1,          # p_type  = PT_LOAD
+                      6,          # p_flags = R|W（数据段）
+                      seg2_off,   # p_offset
+                      seg2_va,    # p_vaddr
+                      seg2_va,    # p_paddr
+                      len(data), len(data),
+                      align)
+    assert len(ph1) == 56 and len(ph2) == 56
+
+    out = bytes(eh) + ph1 + ph2 + bytes(buf)
+    assert len(out) == seg1_filesz
+    out += b'\x00' * (seg2_off - len(out)) + data
+    assert len(out) == total
+    return out, {'data_off': seg2_off, 'data_va': seg2_va}
+
+
 def _decode_movz4(buf, off):
     """回读 movz4 序列的 64 位值（自检用·非构造路径）。"""
     v = 0
@@ -110,5 +182,20 @@ if __name__ == '__main__':
     out = build(code, msg, fixups=[(0, len(code))])
     assert len(out) == 120 + len(code) + len(msg)
     assert _decode_movz4(out, 120) == 0x400000 + 120 + len(code)
-    print('elfpkg64a 自检：movz4 直填/回填 ✓ · 样本 %d B · md5 %s'
-          % (len(out), hashlib.md5(out).hexdigest()[:12]))
+    # 双段（build_ds·W^X 布局 v2·承 规格/50 §2.1）
+    ddata = b'DS-OK\n'
+    out2, meta2 = build_ds(code, ddata, fixups=[(0, 8)])
+    assert meta2['data_off'] == 0x1000 and meta2['data_va'] == 0x401000, meta2
+    assert len(out2) == 0x1000 + len(ddata)
+    (e_phnum,) = struct.unpack_from('<H', out2, 56)
+    assert e_phnum == 2, e_phnum
+    (f1, f2) = struct.unpack_from('<I', out2, 64 + 4)[0], \
+        struct.unpack_from('<I', out2, 64 + 56 + 4)[0]
+    assert f1 == 5 and f2 == 6, (f1, f2)
+    assert _decode_movz4(out2, HDR2) == 0x400000 + HDR2 + 8
+    out3, _ = build_ds(code, ddata)                      # 无 fixup：seg1 字节保真
+    assert out3[HDR2:HDR2 + len(code)] == code, 'seg1 代码区不符'
+    assert out2[HDR2 + 16:HDR2 + len(code)] == code[16:], 'seg1 代码区不符（回填后尾部）'
+    assert out2[0x1000:] == ddata, 'seg2 数据区不符'
+    print('elfpkg64a 自检：movz4 直填/回填 ✓ · 样本 %d B · 双段 %d B（meta %s）· md5 %s'
+          % (len(out), len(out2), meta2, hashlib.md5(out).hexdigest()[:12]))
